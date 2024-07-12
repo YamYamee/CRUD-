@@ -23,11 +23,9 @@ function KakaoLogin() {
                     }
                 );
 
-                const token = kakaoResult.data;
-
                 // 저장한 토큰과 data를 백엔드의 redirect_uri로 보내줍니다.
                 const response = await fetch(
-                    `http://15.165.102.113/api/users/oauth/kakao`, {
+                    `http://15.165.102.113:8080/api/users/oauth/kakao`, {
                         method : 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -35,8 +33,12 @@ function KakaoLogin() {
                         body : JSON.stringify(kakaoResult.data)
                     });
 
-                sessionStorage.setItem("accessToken", token.access_token);
-
+                if(response.ok){
+                    const data = await response.json();
+                    sessionStorage.setItem('accessToken', data.result.tokenInfo.accessToken);
+                } else {
+                    alert('로그인 실패');
+                }
                 return window.location.replace('/');
             } catch (e) {
                 console.error(e);

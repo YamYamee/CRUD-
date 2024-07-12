@@ -24,6 +24,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -44,6 +45,7 @@ public class UserService {
         }
 
         Member user = Member.builder()
+                    .socialId(signUp.getSocialId())
                     .email(signUp.getEmail())
                     .password(passwordEncoder.encode(signUp.getPassword()))
                     .nickname(signUp.getNickname())
@@ -56,33 +58,51 @@ public class UserService {
 
     public ApiResponse<UserResponseDTO> login(MemberLoginRequestDTO memberLoginRequestDTO) {
 
-        if (memberRepository.findByEmail(memberLoginRequestDTO.getEmail()).orElse(null) == null) {
+
+        if (!memberRepository.findByEmail(memberLoginRequestDTO.getEmail()).isPresent()) {
+            log.warn("회원 정보를 찾을 수 없음: {}", memberLoginRequestDTO.getEmail());
             throw new UserHandler(ErrorCode.MEMBER_NOT_FOUND);
         }
         try {
-            // 1. Login ID/PW 를 기반으로 Authentication 객체 생성
-            // 이때 authentication 는 인증 여부를 확인하는 authenticated 값이 false
             UsernamePasswordAuthenticationToken authenticationToken = memberLoginRequestDTO.toAuthentication();
 
-            // 2. 실제 검증 (사용자 비밀번호 체크)이 이루어지는 부분
-            // authenticate 매서드가 실행될 때 CustomUserDetailsService 에서 만든 loadUserByUsername 메서드가 실행
-            Authentication authentication = authenticationManagerBuilder.getObject()
-                    .authenticate(authenticationToken);
+            Authentication authentication = authenticationManagerBuilder.getObject().authenticate(authenticationToken);
 
-            // 3. 인증 정보를 기반으로 JWT 토큰 생성
             TokenInfo tokenInfo = jwtTokenProvider.generateToken(authentication);
-            Member member = memberRepository.findByEmail(memberLoginRequestDTO.getEmail())
-                    .orElseThrow();
 
-            return ApiResponse.of(SuccessCode._LOGIN_SUCCESS, UserResponseDTO.builder().tokenInfo(tokenInfo).nickName(member.getNickname())
-                    .build());
+            Member member = memberRepository.findByEmail(memberLoginRequestDTO.getEmail()).orElseThrow();
+            UserResponseDTO userResponseDTO = UserResponseDTO.builder()
+                    .tokenInfo(tokenInfo)
+                    .nickName(member.getNickname())
+                    .build();
 
+            return ApiResponse.of(SuccessCode._LOGIN_SUCCESS, userResponseDTO);
 
         } catch (AuthenticationException e) {
-            // Handle authentication failure, e.g., incorrect password
             throw new UserHandler(ErrorCode.MEMBER_LOGIN_FAILURE);
         }
     }
+
+    public ApiResponse<UserResponseDTO> socialLogin(Member member) {
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(member, null, member.getAuthorities());
+
+        System.out.println(authentication);
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        TokenInfo tokenInfo = jwtTokenProvider.generateToken(authentication);
+
+        System.out.println(tokenInfo);
+
+        UserResponseDTO userResponseDTO = UserResponseDTO.builder()
+                .tokenInfo(tokenInfo)
+                .nickName(member.getNickname())
+                .build();
+
+        return ApiResponse.of(SuccessCode._LOGIN_SUCCESS, userResponseDTO);
+    }
+
 
 
     /*

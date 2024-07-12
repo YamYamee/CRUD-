@@ -21,12 +21,15 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.UUID;
 
 
 @Slf4j
@@ -37,6 +40,7 @@ public class MemberController {
 
     private final UserService usersService;
     private final MemberRepository memberRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @CrossOrigin
     @Operation(summary = "회원가입 API!")
@@ -55,8 +59,9 @@ public class MemberController {
     @CrossOrigin
     @Operation(summary = "로그인 API")
     @PostMapping("/oauth/kakao")
-    public ApiResponse<String> login(@RequestBody HashMap<String, String> requestBody) throws JsonProcessingException {
+    public ApiResponse<UserResponseDTO> socialLogin(@RequestBody HashMap<String, String> requestBody) throws JsonProcessingException {
 
+        ApiResponse<UserResponseDTO> Response = null;
         String accessToken = requestBody.get("access_token"); // 프론트로부터 accessToken을 받는다.
 
         RestTemplate restTemplate = new RestTemplate();
@@ -76,25 +81,29 @@ public class MemberController {
                 String.class
         );
 
-        // ResponseEntity에서 JSON 파싱하여 id 추출
+        // ResponseEntity에서 JSON 파싱하여 id, nickname, (+이메일) 추출
         ObjectMapper objectMapper = new ObjectMapper();
         JsonNode rootNode = objectMapper.readTree(response.getBody());
         long id = rootNode.path("id").asLong();
-        String nickName = rootNode.path("nickname").toString();
+        String nickName = rootNode.path("nickname").asText();
 
-        if (memberRepository.findById(id).isEmpty()){
-            Member member = Member.builder()
-                    .id(id)
-                    .email("temp@naver.com") // 원래는 이메일도 카카오 서버로부터 가져와야 하는데, 이게 비즈니스 앱을 신청 해야만 해서, 임시 이메일을 저장.
+        if (memberRepository.findBysocialId(id).isEmpty()) {
+
+            String tempEmail = UUID.randomUUID().toString();
+            String tempPassword = UUID.randomUUID().toString();
+
+            UserSignUpRequestDto signUp = UserSignUpRequestDto.builder()
+                    .socialId(id)
+                    .email(tempEmail + "@kakao.com")
                     .nickname(nickName)
-                    .socialType(SocialType.KAKAO)
-                    .roles(Collections.singletonList(Authority.ROLE_USER.name()))
+                    .password(tempPassword)
                     .build();
 
-            memberRepository.save(member);
+            usersService.signUp(signUp);
         }
 
-        return ApiResponse.of(SuccessCode._SIGNUP_SUCCESS, "회원가입 성공!");
-    }
+        Member member = memberRepository.findBysocialId(id).orElse(null);
 
+        return usersService.socialLogin(member); // DTO 만들고 함수 호출
+    }
 }
